@@ -1,0 +1,5 @@
+	//A handler is function that has *gin.Context as the argument.
+    //In a struct schema, what is the difference between a pointer to string and a string like in an email address
+
+    //var validate = validator.New()
+// I have to create the validator object.
