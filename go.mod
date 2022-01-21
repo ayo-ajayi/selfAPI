@@ -1,16 +1,24 @@
-module github.com/ayo-ajayi/selfGin
+module github.com/ayo-ajayi/selfAPI
 
 go 1.17
 
 require (
 	github.com/gin-gonic/gin v1.7.7
 	github.com/go-playground/validator v9.31.0+incompatible
-	github.com/joho/godotenv v1.4.0
+	github.com/golang-jwt/jwt/v4 v4.2.0
+	github.com/twinj/uuid v1.0.0
 	go.mongodb.org/mongo-driver v1.8.2
 	golang.org/x/crypto v0.0.0-20201216223049-8b5274cf687f
 )
 
 require (
+	github.com/joho/godotenv v1.4.0 // indirect
+	github.com/myesui/uuid v1.0.0 // indirect
+	gopkg.in/stretchr/testify.v1 v1.2.2 // indirect
+)
+
+require (
+	github.com/ayo-ajayi/selfGin v0.0.0-20220115190328-5325f266cfcb
 	github.com/gin-contrib/sse v0.1.0 // indirect
 	github.com/go-playground/locales v0.13.0 // indirect
 	github.com/go-playground/universal-translator v0.17.0 // indirect
