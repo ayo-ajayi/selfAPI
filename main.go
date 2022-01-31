@@ -2,24 +2,24 @@ package main
 
 import (
 	"context"
-	"io"
-	"log"
-	"net/http"
-	"os"
-	"time"
+	"fmt"
 
+	pword "github.com/ayo-ajayi/selfAPI/configpassword"
+	"github.com/ayo-ajayi/selfAPI/mongodb"
 	"github.com/ayo-ajayi/selfGin/config"
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator"
-
-	pword "github.com/ayo-ajayi/selfAPI/configpassword"
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/twinj/uuid"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
+
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"time"
 )
 
 type User struct {
@@ -27,61 +27,46 @@ type User struct {
 	Password   *string            `json:"password" validate:"required,min=5"`
 	Created_at time.Time          `json:"created_at"`
 	Updated_at time.Time          `json:"updated_at"`
-	ID         primitive.ObjectID `bson:"_id"`
+	ID         primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 }
 
 type TokenDetails struct {
-	AccessToken  string
-	RefreshToken string
-	AccessUuid   string
-	RefreshUuid  string
-	AtExpires    int64
-	RtExpires    int64
+	AccessToken  string `json:"accesstoken"`
+	RefreshToken string `json:"refreshtoken"`
+	AccessUuid   string `json:"accessuuid"`
+	RefreshUuid  string `json:"refreshuuid"`
+	AtExpires    int64  `json:"atexpires"`
+	RtExpires    int64  `json:"rtexpires"`
+}
+type Save struct {
+	Email       string             `json:"email"`
+	UserID      primitive.ObjectID `json:"user_id"`
+	AccessToken string             `json:"accesstoken"`
+}
+type Todo struct {
+	Note   string             `json:"note"`
+	UserID primitive.ObjectID `bson:"user_id,omitempty" json:"user_id"`
+	//TaskId primitive.ObjectID `json:"taskid"`
 }
 
-var port, mongo_url, aSecret = config.Config("", "MONGODB_URL", "ACCESS_SECRET")
-var _, _, rSecret = config.Config("", "", "REFRESH_SECRET")
+var (
+	port, rSecret, aSecret = config.Config("", "REFRESH_SECRET", "ACCESS_SECRET")
+	Tokens                 *mongo.Collection
+	Users                  *mongo.Collection
+	Todos                  *mongo.Collection
+)
+var err error
 
 func main() {
 
-	client, err := mongo.NewClient(options.Client().ApplyURI(mongo_url))
-	if err != nil {
-		log.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
-	err = client.Connect(ctx)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer client.Disconnect(ctx)
-	err = client.Ping(ctx, readpref.Primary())
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	log.Println("MongoDB connection successful")
-
-	databases, err := client.ListDatabaseNames(ctx, bson.M{})
-	if err != nil {
-		log.Fatal(err)
-	}
-	Users := client.Database("selfgin").Collection("Users")
+	Tokens, Users, Todos = mongodb.Init()
 	f, _ := os.Create("gin.log")
 	gin.DisableConsoleColor()
 	gin.DefaultWriter = io.MultiWriter(f)
 	router := gin.Default()
 	router.SetTrustedProxies([]string{"192.6.168.201"})
-
-	router.Use(func(c *gin.Context) {
-		if c.FullPath() == "" {
-			c.Redirect(301, "https://www.google.com/")
-		}
-	})
-
-	router.GET("/databases", func(c *gin.Context) {
-		c.JSON(200, gin.H{"databases": databases})
-	})
 
 	router.POST("/register", func(c *gin.Context) {
 		var users []User
@@ -94,43 +79,27 @@ func main() {
 
 	})
 
-	router.POST("/user", func(c *gin.Context) {
-		var input User
-
-		if err := c.BindJSON(&input); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		validate := validator.New()
-		validationErr := validate.Struct(input)
-		if validationErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
-			return
-		}
-
-		res, err := Users.InsertOne(ctx, input)
-		if err != nil {
-			log.Fatal(err)
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"data": res})
-	})
-
-	router.POST("/userregister", func(c *gin.Context) {
+	router.POST("/signup", func(c *gin.Context) {
 		var req User
-
 		if err := c.BindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		validate := validator.New()
 
+		validate := validator.New()
 		validationErr := validate.Struct(req)
 		if validationErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
 			return
 		}
-
+		count, err := Users.CountDocuments(ctx, bson.M{"email": req.Email})
+		if count != 0 {
+			c.JSON(http.StatusUnauthorized, "User already exists")
+			return
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
 		hashedPassword, err := pword.HashPassword(*req.Password)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, err)
@@ -146,10 +115,29 @@ func main() {
 			log.Fatal(err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"data": res})
+		td, err := CreateToken(res.InsertedID.(primitive.ObjectID))
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+		c.Header("auth", td.AccessToken)
+
+		save := Save{
+			Email:       *req.Email,
+			UserID:      res.InsertedID.(primitive.ObjectID),
+			AccessToken: td.AccessToken,
+		}
+
+		r, err := Tokens.InsertOne(context.TODO(), save)
+		if err != nil {
+			c.JSON(400, err)
+		}
+
+		c.JSON(http.StatusOK, gin.H{"data": r})
+
 	})
 
-	router.POST("/userlogin", func(c *gin.Context) {
+	router.POST("/login", func(c *gin.Context) {
 		var req User
 		var res User
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -167,6 +155,7 @@ func main() {
 		if err = Users.FindOne(ctx, bson.M{"email": req.Email}).Decode(&res); err != nil {
 			log.Fatal(err)
 		}
+
 		verify := pword.VerifyPassword(*res.Password, *req.Password)
 
 		if !verify {
@@ -179,11 +168,122 @@ func main() {
 			c.JSON(http.StatusUnprocessableEntity, err.Error())
 			return
 		}
-		c.JSON(http.StatusOK, token)
-	})
 
+		c.Header("auth", token.AccessToken)
+		c.JSON(http.StatusOK, gin.H{"data": res})
+
+	})
+	router.POST("/todo", NewTodo)
+	router.GET("/todo", GetTodo)
+	router.GET("/todo/:id", GetTodoByID)
 	router.Run(":" + port)
 
+}
+
+//Todo user_id
+//Tokens userid
+
+func GetTodoByID(c *gin.Context) {
+	users := VerifyToken(c)
+	id := c.Param("id")
+	count, err := Todos.CountDocuments(context.TODO(), bson.M{"_id": id, "user_id": users["InsertedID"]})
+	if count == 0 {
+		c.JSON(404, "Document doesn't exist")
+		return
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	var res bson.M
+	err = Todos.FindOne(context.TODO(), bson.M{"_id": id, "user_id": users["InsertedID"]}).Decode(&res)
+	if err != nil {
+
+		if err == mongo.ErrNoDocuments {
+			return
+		}
+		log.Fatal(err)
+	}
+	c.JSON(200, res)
+
+}
+
+func GetTodo(c *gin.Context) {
+	users := VerifyToken(c)
+
+	res, err := Tokens.Find(context.TODO(), bson.M{"userid": users["InsertedID"]})
+
+	if err != nil {
+
+		if err == mongo.ErrNoDocuments {
+			return
+		}
+		log.Fatal(err)
+	}
+	c.JSON(200, res)
+}
+
+func NewTodo(c *gin.Context) {
+	users := VerifyToken(c)
+	var req Todo
+	if err := c.BindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	validate := validator.New()
+	validationErr := validate.Struct(req)
+	if validationErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": validationErr.Error()})
+		return
+	}
+	res, err := Todos.InsertOne(context.TODO(),
+		bson.M{
+
+			"note":       req.Note,
+			"user_id":    users["_id"],
+			"created_at": time.Now(),
+		},
+	)
+
+	if err != nil {
+		c.JSON(400, err)
+	}
+	c.JSON(200, res)
+}
+
+func VerifyToken(c *gin.Context) bson.M {
+	tokenString := c.GetHeader("auth")
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(os.Getenv("ACCESS_SECRET")), nil
+	})
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+	}
+
+	var tokens bson.M
+	err = Tokens.FindOne(context.TODO(), bson.M{"accesstoken": token.Raw}).Decode(&tokens)
+	if err != nil {
+
+		if err == mongo.ErrNoDocuments {
+			c.JSON(400, "not found")
+		}
+		log.Fatal(err)
+	}
+
+	var users bson.M
+	err = Users.FindOne(context.TODO(), bson.M{"_id": tokens["userid"]}).Decode(&users)
+	if err != nil {
+
+		if err == mongo.ErrNoDocuments {
+			c.JSON(400, "not found")
+		}
+		log.Fatal(err)
+	}
+	return users
 }
 
 func CreateToken(userID primitive.ObjectID) (*TokenDetails, error) {
@@ -219,5 +319,10 @@ func CreateToken(userID primitive.ObjectID) (*TokenDetails, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return td, nil
 }
+
+//c.Request.Body = res
+//res.AccessUuid
+//decode the id from the accessuuid

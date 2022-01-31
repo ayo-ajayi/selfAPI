@@ -4,9 +4,17 @@
  - using env:	export GIN_MODE=release
  - using code:	gin.SetMode(gin.ReleaseMode)
 
-[GIN-debug] GET    /databases                --> main.main.func2 (4 handlers)
-[GIN-debug] POST   /register                 --> main.main.func3 (4 handlers)
-[GIN-debug] POST   /user                     --> main.main.func4 (4 handlers)
-[GIN-debug] POST   /userregister             --> main.main.func5 (4 handlers)
-[GIN-debug] POST   /userlogin                --> main.main.func6 (4 handlers)
+[GIN-debug] POST   /register                 --> main.main.func1 (3 handlers)
+[GIN-debug] POST   /signup                   --> main.main.func2 (3 handlers)
+[GIN-debug] POST   /login                    --> main.main.func3 (3 handlers)
+[GIN-debug] POST   /todo                     --> main.NewTodo (3 handlers)
+[GIN-debug] GET    /todo                     --> main.GetTodo (3 handlers)
+[GIN-debug] GET    /todo/:id                 --> main.GetTodoByID (3 handlers)
 [GIN-debug] Listening and serving HTTP on :8080
+[GIN] 2022/01/30 - 03:05:55 | 200 |    804.4047ms |       127.0.0.1 | POST     "/signup"
+[GIN] 2022/01/30 - 03:06:10 | 200 |    381.5826ms |       127.0.0.1 | GET      "/todo"
+[GIN-debug] [WARNING] Headers were already written. Wanted to override status code 422 with 200
+[GIN] 2022/01/30 - 03:06:22 | 200 |      393.28ms |       127.0.0.1 | POST     "/todo"
+[GIN] 2022/01/30 - 03:06:31 | 200 |    848.4776ms |       127.0.0.1 | POST     "/todo"
+[GIN] 2022/01/30 - 03:06:36 | 200 |    1.0311787s |       127.0.0.1 | GET      "/todo"
+[GIN] 2022/01/30 - 03:06:46 | 200 |    1.0374858s |       127.0.0.1 | GET      "/todo"
